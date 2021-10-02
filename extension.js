@@ -4,7 +4,8 @@ const { readBuilderProgram } = require("typescript");
 const vscode = require("vscode");
 const Queue = require("./helper/Queue.js");
 let editor,
-  queue = new Queue();
+  queue = new Queue(),
+  pos = { previousChar: 0, previousLine: 0, currentChar: 0, currentLine: 0 };
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -31,8 +32,6 @@ function activate(context) {
   );
 
   context.subscriptions.push(disposable);
-  let lastLine = 0,
-    lastChar = 0;
 
   vscode.window.onDidChangeTextEditorSelection(function (
     textEditorSelectionChangeEvent
@@ -46,14 +45,19 @@ function activate(context) {
       textEditor = textEditorSelectionChangeEvent.textEditor,
       kind = textEditorSelectionChangeEvent.kind ?? 0;
 
-    console.log("last line: " + lastLine + " last char: " + lastChar);
-    console.log("new line: " + newLine + " new char: " + newChar);
+    pos = {
+      previousChar: pos.currentChar,
+      previousLine: pos.currentLine,
+      currentChar: newChar,
+      currentLine: newLine,
+    };
 
+    console.log(pos);
     let travelLinePositions = calculateTravelLinePositions(
-        lastChar,
-        lastLine,
-        newChar,
-        newLine
+        pos.previousChar,
+        pos.previousLine,
+        pos.currentChar,
+        pos.currentLine
       ),
       travelLineRanges = linePositionsToLineRanges(travelLinePositions);
 
@@ -61,9 +65,6 @@ function activate(context) {
       rangeArray: travelLineRanges,
       textEditor: textEditor,
     });
-
-    lastLine = newLine;
-    lastChar = newChar;
   });
 }
 
@@ -82,7 +83,7 @@ function decorateAll({ rangeArray, textEditor }) {
         200,
         0
       );
-      await sleep(20);
+      await sleep(5);
     }
     resolve();
   });
