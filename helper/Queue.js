@@ -11,13 +11,9 @@ module.exports = (function () {
     this.parameters.push(parameters);
     //add callback to the queue
     this.queue.push(function (params) {
-      var finished = callback(params);
-      console.log(finished);
-      if (typeof finished === "undefined" || finished) {
-        //  if callback returns `false`, then you have to
-        //  call `next` somewhere in the callback
+      var finished = callback(params).then(() => {
         _this.next();
-      }
+      });
     });
 
     if (!this.running) {
@@ -39,9 +35,7 @@ module.exports = (function () {
       params = this.parameters.shift();
     if (shift) {
       this.running = true;
-      shift(params).then(() => {
-        if (this.queue.length != 0) this.next();
-      });
+      shift(params);
     }
   };
 

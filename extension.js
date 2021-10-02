@@ -57,11 +57,9 @@ function activate(context) {
       ),
       travelLineRanges = linePositionsToLineRanges(travelLinePositions);
 
-    decorateAll({
+    queue.add_function(decorateAll, {
       rangeArray: travelLineRanges,
       textEditor: textEditor,
-    }).then(() => {
-      console.log("done");
     });
 
     lastLine = newLine;
@@ -91,14 +89,12 @@ function decorateAll({ rangeArray, textEditor }) {
 }
 
 function linePositionsToLineRanges(linePositions) {
-  console.log(linePositions.length);
   let ranges = new Array();
   linePositions.forEach((pos1) => {
     ranges.push(
       new vscode.Range(pos1, new vscode.Position(pos1.line, pos1.character + 1))
     );
   });
-  console.log(ranges.length);
   return ranges;
 }
 
