@@ -1,11 +1,16 @@
+// @ts-nocheck
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 const { readBuilderProgram } = require("typescript");
 const vscode = require("vscode");
 const Queue = require("./helper/Queue.js");
+const config = require("./config.json");
 let editor,
   queue = new Queue(),
-  pos = { previousChar: 0, previousLine: 0, currentChar: 0, currentLine: 0 };
+  pos = { previousChar: 0, previousLine: 0, currentChar: 0, currentLine: 0 },
+  lastMove = 0,
+  eventBuffer = [],
+  lastEventTimestamp = 0;
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -36,35 +41,61 @@ function activate(context) {
   vscode.window.onDidChangeTextEditorSelection(function (
     textEditorSelectionChangeEvent
   ) {
-    if (textEditorSelectionChangeEvent.selections.length > 2) {
-      console.log("selected text");
-      return;
-    }
-    const newLine = textEditorSelectionChangeEvent.selections[0].start.line,
-      newChar = textEditorSelectionChangeEvent.selections[0].start.character,
-      textEditor = textEditorSelectionChangeEvent.textEditor,
-      kind = textEditorSelectionChangeEvent.kind ?? 0;
+    lastEventTimestamp = Date.now();
+    if (textEditorSelectionChangeEvent.selections[0].start.character == 0) {
+      checkEventValidity(textEditorSelectionChangeEvent)
+        .then((textEditorSelectionChangeEvent) =>
+          draw(textEditorSelectionChangeEvent)
+        )
+        .catch((reason) => {
+          console.log(reason);
+        });
+    } else draw(textEditorSelectionChangeEvent);
+  });
+}
 
-    pos = {
-      previousChar: pos.currentChar,
-      previousLine: pos.currentLine,
-      currentChar: newChar,
-      currentLine: newLine,
-    };
+function checkEventValidity(textEditorSelectionChangeEvent) {
+  return new Promise((resolve, reject) => {
+    eventBuffer.push(textEditorSelectionChangeEvent);
+    setTimeout(() => {
+      if (eventBuffer.length == 1) resolve(textEditorSelectionChangeEvent);
+      else eventBuffer = [];
+      reject("Invalid event");
+    }, 50);
+  });
+}
 
-    console.log(pos);
-    let travelLinePositions = calculateTravelLinePositions(
-        pos.previousChar,
-        pos.previousLine,
-        pos.currentChar,
-        pos.currentLine
-      ),
-      travelLineRanges = linePositionsToLineRanges(travelLinePositions);
+function draw(textEditorSelectionChangeEvent) {
+  lastMove = Date.now();
+  console.log("EXE");
+  console.log(textEditorSelectionChangeEvent);
+  if (textEditorSelectionChangeEvent.selections.length > 2) {
+    return;
+  }
+  const newLine = textEditorSelectionChangeEvent.selections[0].start.line,
+    newChar = textEditorSelectionChangeEvent.selections[0].start.character,
+    textEditor = textEditorSelectionChangeEvent.textEditor,
+    kind = textEditorSelectionChangeEvent.kind ?? 0;
 
-    queue.add_function(decorateAll, {
-      rangeArray: travelLineRanges,
-      textEditor: textEditor,
-    });
+  pos = {
+    previousChar: pos.currentChar,
+    previousLine: pos.currentLine,
+    currentChar: newChar,
+    currentLine: newLine,
+  };
+
+  console.log(pos);
+  let travelLinePositions = calculateTravelLinePositions(
+      pos.previousChar,
+      pos.previousLine,
+      pos.currentChar,
+      pos.currentLine
+    ),
+    travelLineRanges = linePositionsToLineRanges(travelLinePositions);
+
+  queue.add_function(decorateAll, {
+    rangeArray: travelLineRanges,
+    textEditor: textEditor,
   });
 }
 
@@ -72,6 +103,7 @@ function decorateAll({ rangeArray, textEditor }) {
   return new Promise(async (resolve, reject) => {
     let len = rangeArray.length;
     for (let i = 0; len > i; i++) {
+      let lineProgressPercentage = i / len;
       setTimeout(
         () =>
           decorate(
@@ -79,15 +111,21 @@ function decorateAll({ rangeArray, textEditor }) {
               editor: textEditor,
               range: rangeArray.splice(0, 1),
               decorationType: vscode.window.createTextEditorDecorationType({
-                backgroundColor: getCursorShape(100, 100),
+                backgroundColor: getHighlightColor(
+                  100,
+                  100,
+                  lineProgressPercentage
+                ),
               }),
             },
-            200,
-            0
+            config.highlight.duration,
+            0,
+            lineProgressPercentage
           ),
-        3 * i
+        config.line.speed * i
       );
     }
+    lineProgressPercentage = 1;
     resolve();
   });
 }
@@ -136,28 +174,27 @@ function manhattan(x0, y0, x1, y1) {
   return Math.abs(x1 - x0) + Math.abs(y1 - y0);
 }
 
-function decorate(params, msTotal, msTaken) {
+function decorate(params, msTotal, msTaken, lineProgressPercentage) {
   if (msTaken >= msTotal) {
     destroyDecoration(params);
     return;
   }
-  const tick = Math.round(msTotal / 20);
+  const tick = Math.round(msTotal / config.highlight.numOfFrames);
 
   params.decorationType?.dispose();
   params.decorationType = vscode.window.createTextEditorDecorationType({
-    backgroundColor: getCursorShape(msTotal - msTaken, msTotal),
+    backgroundColor: getHighlightColor(
+      msTotal - msTaken,
+      msTotal,
+      lineProgressPercentage
+    ),
   });
   params.editor.setDecorations(params.decorationType, params.range);
-  setTimeout(() => decorate(params, msTotal, msTaken + tick), msTotal / tick);
+  setTimeout(
+    () => decorate(params, msTotal, msTaken + tick, lineProgressPercentage),
+    msTotal / tick
+  );
 }
-
-let updateDecoration = (msLeft, msTotal, params) => {
-  params.decorationType?.dispose();
-  params.decorationType = vscode.window.createTextEditorDecorationType({
-    backgroundColor: getCursorShape(msLeft, msTotal),
-  });
-  params.editor.setDecorations(params.decorationType, params.decorationOptions);
-};
 
 let destroyDecoration = (params) => {
   params.decorationType?.dispose();
@@ -168,9 +205,36 @@ function deactivate() {
   //console.log("Deactivated");
 }
 
-function getCursorShape(ms, msTotal) {
-  const ratio = 1 - (msTotal - ms) / msTotal;
-  return "rgba(255,255,255," + ratio + ")";
+function getHighlightColor(ms, msTotal, lineProgressPercentage) {
+  const alpha = 1 - (msTotal - ms) / msTotal;
+  let r = _getRainbowColour(lineProgressPercentage);
+  //console.log(r);
+  if (config.highlight.rainbowColourMode)
+    return "rgba(" + r[0] + "," + r[1] + "," + r[2] + "," + alpha + ")";
+  else return "rgba(" + config.highlight.colour + "," + alpha + ")";
+}
+
+function _getRainbowColour(x) {
+  let r = x,
+    g = x + 1 / 6 > 1 ? x + 1 / 6 - 1 : x + 1 / 6,
+    b = x + 2 / 6 > 1 ? x + 2 / 6 - 1 : x + 2 / 6;
+  return [
+    _calcColourIngredient(r),
+    _calcColourIngredient(g),
+    _calcColourIngredient(b),
+  ];
+}
+
+function _calcColourIngredient(percent) {
+  let total = 6 * 255,
+    pos = total * percent;
+  let c = 255;
+  if (pos > total * (1 / 6) && pos < total * (5 / 6)) {
+    if (pos < total * (2 / 6) || pos > total * (4 / 6)) {
+      c = c - Math.abs(total / 2 - pos) / 3;
+    }
+  } else c = 90;
+  return c;
 }
 
 function sleep(ms) {
