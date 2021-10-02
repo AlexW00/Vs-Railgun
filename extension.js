@@ -72,18 +72,21 @@ function decorateAll({ rangeArray, textEditor }) {
   return new Promise(async (resolve, reject) => {
     let len = rangeArray.length;
     for (let i = 0; len > i; i++) {
-      decorate(
-        {
-          editor: textEditor,
-          range: rangeArray.splice(0, 1),
-          decorationType: vscode.window.createTextEditorDecorationType({
-            backgroundColor: getCursorShape(100, 100),
-          }),
-        },
-        200,
-        0
+      setTimeout(
+        () =>
+          decorate(
+            {
+              editor: textEditor,
+              range: rangeArray.splice(0, 1),
+              decorationType: vscode.window.createTextEditorDecorationType({
+                backgroundColor: getCursorShape(100, 100),
+              }),
+            },
+            200,
+            0
+          ),
+        3 * i
       );
-      await sleep(5);
     }
     resolve();
   });
@@ -145,9 +148,7 @@ function decorate(params, msTotal, msTaken) {
     backgroundColor: getCursorShape(msTotal - msTaken, msTotal),
   });
   params.editor.setDecorations(params.decorationType, params.range);
-  sleep(msTotal / tick).then(() => {
-    decorate(params, msTotal, msTaken + tick);
-  });
+  setTimeout(() => decorate(params, msTotal, msTaken + tick), msTotal / tick);
 }
 
 let updateDecoration = (msLeft, msTotal, params) => {
