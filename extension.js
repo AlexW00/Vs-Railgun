@@ -2,7 +2,9 @@
 // Import the module and reference it with the alias vscode in your code below
 const { readBuilderProgram } = require("typescript");
 const vscode = require("vscode");
-let editor;
+const Queue = require("./helper/Queue.js");
+let editor,
+  queue = new Queue();
 
 // this method is called when your extension is activated
 // your extension is activated the very first time the command is executed
@@ -32,73 +34,75 @@ function activate(context) {
   let lastLine = 0,
     lastChar = 0;
 
-  vscode.window.onDidChangeTextEditorSelection(function (textEditor) {
-    if (textEditor.selections.length > 2) {
+  vscode.window.onDidChangeTextEditorSelection(function (
+    textEditorSelectionChangeEvent
+  ) {
+    if (textEditorSelectionChangeEvent.selections.length > 2) {
       console.log("selected text");
       return;
     }
-    const newLine = textEditor.selections[0].start.line,
-      newChar = textEditor.selections[0].start.character,
-      kind = textEditor.kind ?? 0;
+    const newLine = textEditorSelectionChangeEvent.selections[0].start.line,
+      newChar = textEditorSelectionChangeEvent.selections[0].start.character,
+      textEditor = textEditorSelectionChangeEvent.textEditor,
+      kind = textEditorSelectionChangeEvent.kind ?? 0;
 
     console.log("last line: " + lastLine + " last char: " + lastChar);
     console.log("new line: " + newLine + " new char: " + newChar);
 
-    let lineCoords = line(lastChar, lastLine, newChar, newLine),
-      rangeArray = getRangeArray(lineCoords);
-    editor = textEditor.textEditor;
-    decorateAll(rangeArray, textEditor);
+    let travelLinePositions = calculateTravelLinePositions(
+        lastChar,
+        lastLine,
+        newChar,
+        newLine
+      ),
+      travelLineRanges = linePositionsToLineRanges(travelLinePositions);
+
+    decorateAll({
+      rangeArray: travelLineRanges,
+      textEditor: textEditor,
+    }).then(() => {
+      console.log("done");
+    });
 
     lastLine = newLine;
     lastChar = newChar;
   });
 }
 
-function decorateAll(rangeArray, textEditor) {
-  if (rangeArray.length == 0) return;
-  decorate(
-    {
-      editor: textEditor.textEditor,
-      range: rangeArray.splice(0, 1),
-      decorationType: vscode.window.createTextEditorDecorationType({
-        backgroundColor: getCursorShape(100, 100),
-      }),
-    },
-    200,
-    0
-  );
-  sleep(50).then(() => decorateAll(rangeArray, textEditor));
+function decorateAll({ rangeArray, textEditor }) {
+  return new Promise(async (resolve, reject) => {
+    let len = rangeArray.length;
+    for (let i = 0; len > i; i++) {
+      decorate(
+        {
+          editor: textEditor,
+          range: rangeArray.splice(0, 1),
+          decorationType: vscode.window.createTextEditorDecorationType({
+            backgroundColor: getCursorShape(100, 100),
+          }),
+        },
+        200,
+        0
+      );
+      await sleep(20);
+    }
+    resolve();
+  });
 }
 
-function getRangeArray(lineCoords) {
+function linePositionsToLineRanges(linePositions) {
+  console.log(linePositions.length);
   let ranges = new Array();
-  lineCoords.forEach((pos1) => {
+  linePositions.forEach((pos1) => {
     ranges.push(
       new vscode.Range(pos1, new vscode.Position(pos1.line, pos1.character + 1))
     );
   });
+  console.log(ranges.length);
   return ranges;
 }
 
-function getLine(x1, y1, x2, y2) {
-  var points = new Array(),
-    a = x1 - x2,
-    b = y1 - y2,
-    numberOfPoints = Math.sqrt(a * a + b * b);
-  // TODO: ??????
-  for (var i = 0; i < numberOfPoints; i++) {
-    points.push(
-      new vscode.Position(
-        Math.round((Math.abs(y1 - y2) / numberOfPoints) * i + y2),
-        Math.round((Math.abs(x1 - x2) / 10) * i + y2)
-      )
-    );
-  }
-
-  return points;
-}
-
-function line(x0, y0, x1, y1) {
+function calculateTravelLinePositions(x0, y0, x1, y1) {
   const differenceSteps = manhattan(x0, y0, x1, y1),
     diffX = x0 - x1,
     diffY = y0 - y1;
@@ -112,7 +116,7 @@ function line(x0, y0, x1, y1) {
   for (var i = 0; i < differenceSteps; i++) {
     const ratio = i / differenceSteps;
     try {
-      points.push(
+      points = [
         new vscode.Position(
           Math.round(
             diffY * ratio < 0 ? bigY + diffY * ratio : smallY + diffY * ratio
@@ -120,11 +124,12 @@ function line(x0, y0, x1, y1) {
           Math.round(
             diffX * ratio < 0 ? bigX + diffX * ratio : smallX + diffX * ratio
           )
-        )
-      );
+        ),
+        ...points,
+      ];
     } catch (err) {}
   }
-  return points.reverse();
+  return points;
 }
 
 function manhattan(x0, y0, x1, y1) {
@@ -172,17 +177,6 @@ function getCursorShape(ms, msTotal) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function looper(ms, pause, onLoop, onEnd, obj) {
-  const numOfLoops = ms / pause;
-  for (let i = 0; i < numOfLoops; i++) {
-    //console.log("Updating: " + (ms - i * pause));
-    onLoop(ms - i * pause, ms, obj);
-    await sleep(pause);
-  }
-  onEnd(obj);
-  //console.log("Deleting");
 }
 
 module.exports = {
