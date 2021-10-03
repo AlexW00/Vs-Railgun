@@ -129,18 +129,27 @@ function decorate(params, msTotal, msTaken, lineProgressPercentage) {
   const tick = Math.round(msTotal / config.highlight.numOfFrames);
 
   params.decorationType?.dispose();
-  params.decorationType = vscode.window.createTextEditorDecorationType({
-    backgroundColor: getHighlightColor(
-      msTaken,
-      msTotal,
-      lineProgressPercentage
-    ),
+  params.decorationType = getDecorationType({
+    msTaken,
+    msTotal,
+    lineProgressPercentage,
   });
   params.editor.setDecorations(params.decorationType, params.range);
   setTimeout(
     () => decorate(params, msTotal, msTaken + tick, lineProgressPercentage),
     msTotal / tick
   );
+}
+
+// generates the decoration for each decoration frame
+function getDecorationType(params) {
+  return vscode.window.createTextEditorDecorationType({
+    backgroundColor: getHighlightColor(
+      params.msTaken,
+      params.msTotal,
+      params.lineProgressPercentage
+    ),
+  });
 }
 
 let destroyDecoration = (params) => {
