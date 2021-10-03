@@ -135,14 +135,26 @@ function decorate(params, msTotal, msTaken, lineProgressPercentage) {
     lineProgressPercentage,
   });
   params.editor.setDecorations(params.decorationType, params.range);
+
   setTimeout(
     () => decorate(params, msTotal, msTaken + tick, lineProgressPercentage),
     msTotal / tick
   );
+
+  //setTimeout(() => destroyDecoration(params), 200);
 }
 
 // generates the decoration for each decoration frame
 function getDecorationType(params) {
+  let r;
+  try {
+    r = generateParticleDecoration(params);
+  } catch (err) {
+    console.log(err);
+  }
+
+  return r;
+
   return vscode.window.createTextEditorDecorationType({
     backgroundColor: getHighlightColor(
       params.msTaken,
@@ -150,6 +162,56 @@ function getDecorationType(params) {
       params.lineProgressPercentage
     ),
   });
+}
+
+function generateParticleDecoration(params) {
+  let maskCSS = {
+      "background-color": "currentColor",
+      "-webkit-mask-repeat": "no-repeat",
+      "-webkit-mask-size": "contain",
+      "-webkit-mask-image": `url("/Users/alexweichart/Documents/GitHub/VsRailgun/vsrailgun/particles.gif")`,
+      filter: "saturate(150%)",
+      opacity: params.msTotal / params.msTaken,
+    },
+    bgCss = {
+      "background-repeat": "no-repeat",
+      opacity: params.msTaken / params.msTotal,
+      "background-size": "contain",
+      "background-image": `url("/Users/alexweichart/Documents/GitHub/VsRailgun/vsrailgun/flare.png")`,
+    };
+  defaultCss = {
+    position: "absolute",
+    opacity: params.msTotal / params.msTaken,
+    width: "64px",
+    height: "64px",
+    ["z-index"]: 1,
+    display: `block-inline`,
+  };
+
+  return vscode.window.createTextEditorDecorationType({
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+    textDecoration: `none; position: relative;`,
+    before: {
+      contentText: "",
+      textDecoration: `none; ${objectToCssString(bgCss)} ${objectToCssString(
+        defaultCss
+      )}`,
+    },
+  });
+}
+
+function objectToCssString(settings) {
+  let value = "";
+  const cssString = Object.keys(settings)
+    .map((setting) => {
+      value = settings[setting];
+      if (typeof value === "string" || typeof value === "number") {
+        return `${setting}: ${value};`;
+      }
+    })
+    .join(" ");
+
+  return cssString;
 }
 
 let destroyDecoration = (params) => {
