@@ -10,13 +10,13 @@
 		"Other"
 	],
 	"activationEvents": [
-        "onCommand:vsrailgun.helloWorld"
+        "onCommand:vsrailgun.activate"
 	],
 	"main": "./extension.js",
 	"contributes": {
 		"commands": [{
-            "command": "vsrailgun.helloWorld",
-            "title": "Hello World"
+            "command": "vsrailgun.activate",
+            "title": "Activate Railgun"
 
 		}
 			]

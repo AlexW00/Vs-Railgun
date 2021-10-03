@@ -1,14 +1,14 @@
 // @ts-nocheck
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
-const { readBuilderProgram } = require("typescript");
-const vscode = require("vscode");
-const Queue = require("./helper/Queue.js");
-const config = require("./config.json");
-let editor,
-  queue = new Queue(),
+const vscode = require("vscode"),
+  getHighlightColor = require("./helper/Colour.js"),
+  Queue = require("./helper/Queue.js");
+Converter = require("./helper/Converter.js");
+config = require("./config.json");
+
+let queue = new Queue(),
   pos = { previousChar: 0, previousLine: 0, currentChar: 0, currentLine: 0 },
-  lastMove = 0,
   eventBuffer = [],
   lastEventTimestamp = 0;
 
@@ -19,15 +19,8 @@ let editor,
  * @param {vscode.ExtensionContext} context
  */
 function activate(context) {
-  // Use the console to output diagnostic information (console.log) and errors (console.error)
-  // This line of code will only be executed once when your extension is activated
-  console.log('Congratulations, your extension "vsrailgun" is now active!');
-
-  // The command has been defined in the package.json file
-  // Now provide the implementation of the command with  registerCommand
-  // The commandId parameter must match the command field in package.json
   let disposable = vscode.commands.registerCommand(
-    "vsrailgun.helloWorld",
+    "vsrailgun.activate",
     function () {
       // The code you place here will be executed every time your command is executed
 
@@ -42,6 +35,7 @@ function activate(context) {
     textEditorSelectionChangeEvent
   ) {
     lastEventTimestamp = Date.now();
+    // necessairy to filter out weird glitch events, sometimes 3 events get fired instead of one
     if (textEditorSelectionChangeEvent.selections[0].start.character == 0) {
       checkEventValidity(textEditorSelectionChangeEvent)
         .then((textEditorSelectionChangeEvent) =>
@@ -54,6 +48,7 @@ function activate(context) {
   });
 }
 
+// helper for checking validity of an event, needs improvement
 function checkEventValidity(textEditorSelectionChangeEvent) {
   return new Promise((resolve, reject) => {
     eventBuffer.push(textEditorSelectionChangeEvent);
@@ -65,47 +60,42 @@ function checkEventValidity(textEditorSelectionChangeEvent) {
   });
 }
 
+// Main draw method which draws the cursor animation based on new char/line coords of TextEditorSelectionChangeEvent
 function draw(textEditorSelectionChangeEvent) {
-  lastMove = Date.now();
-  console.log("EXE");
-  console.log(textEditorSelectionChangeEvent);
-  if (textEditorSelectionChangeEvent.selections.length > 2) {
-    return;
-  }
-  const newLine = textEditorSelectionChangeEvent.selections[0].start.line,
-    newChar = textEditorSelectionChangeEvent.selections[0].start.character,
-    textEditor = textEditorSelectionChangeEvent.textEditor,
-    kind = textEditorSelectionChangeEvent.kind ?? 0;
+  const textEditor = textEditorSelectionChangeEvent.textEditor;
 
   pos = {
     previousChar: pos.currentChar,
     previousLine: pos.currentLine,
-    currentChar: newChar,
-    currentLine: newLine,
+    currentChar: textEditorSelectionChangeEvent.selections[0].start.character,
+    currentLine: textEditorSelectionChangeEvent.selections[0].start.line,
   };
 
-  console.log(pos);
-  let travelLinePositions = calculateTravelLinePositions(
+  // get array of Position objects based on coordinates; convert to array of Ranges which can be used by VS Code decoration api
+  let travelLinePositions = Converter.calculateTravelLinePositions(
       pos.previousChar,
       pos.previousLine,
       pos.currentChar,
       pos.currentLine
     ),
-    travelLineRanges = linePositionsToLineRanges(travelLinePositions);
+    travelLineRanges = Converter.linePositionsToLineRanges(travelLinePositions);
 
+  // add decoration to queue of functions
   queue.add_function(decorateAll, {
     rangeArray: travelLineRanges,
     textEditor: textEditor,
   });
 }
 
+// function that loops over all Ranges and decorates each of them
 function decorateAll({ rangeArray, textEditor }) {
-  return new Promise(async (resolve, reject) => {
+  return new Promise(async (resolve) => {
     let len = rangeArray.length;
     for (let i = 0; len > i; i++) {
       let lineProgressPercentage = i / len;
       setTimeout(
         () =>
+          // call decoration function for each Range object of the array
           decorate(
             {
               editor: textEditor,
@@ -130,50 +120,7 @@ function decorateAll({ rangeArray, textEditor }) {
   });
 }
 
-function linePositionsToLineRanges(linePositions) {
-  let ranges = new Array();
-  linePositions.forEach((pos1) => {
-    ranges.push(
-      new vscode.Range(pos1, new vscode.Position(pos1.line, pos1.character + 1))
-    );
-  });
-  return ranges;
-}
-
-function calculateTravelLinePositions(x0, y0, x1, y1) {
-  const differenceSteps = manhattan(x0, y0, x1, y1),
-    diffX = x0 - x1,
-    diffY = y0 - y1;
-  var points = new Array();
-
-  const bigX = x0 > x1 ? x0 : x1,
-    bigY = y0 > y1 ? y0 : y1,
-    smallX = bigX != x0 ? x0 : x1,
-    smallY = bigY != y0 ? y0 : y1;
-
-  for (var i = 0; i < differenceSteps; i++) {
-    const ratio = i / differenceSteps;
-    try {
-      points = [
-        new vscode.Position(
-          Math.round(
-            diffY * ratio < 0 ? bigY + diffY * ratio : smallY + diffY * ratio
-          ),
-          Math.round(
-            diffX * ratio < 0 ? bigX + diffX * ratio : smallX + diffX * ratio
-          )
-        ),
-        ...points,
-      ];
-    } catch (err) {}
-  }
-  return points;
-}
-
-function manhattan(x0, y0, x1, y1) {
-  return Math.abs(x1 - x0) + Math.abs(y1 - y0);
-}
-
+// decorates a given Range recursively
 function decorate(params, msTotal, msTaken, lineProgressPercentage) {
   if (msTaken >= msTotal) {
     destroyDecoration(params);
@@ -184,7 +131,7 @@ function decorate(params, msTotal, msTaken, lineProgressPercentage) {
   params.decorationType?.dispose();
   params.decorationType = vscode.window.createTextEditorDecorationType({
     backgroundColor: getHighlightColor(
-      msTotal - msTaken,
+      msTaken,
       msTotal,
       lineProgressPercentage
     ),
@@ -203,42 +150,6 @@ let destroyDecoration = (params) => {
 // this method is called when your extension is deactivated
 function deactivate() {
   //console.log("Deactivated");
-}
-
-function getHighlightColor(ms, msTotal, lineProgressPercentage) {
-  const alpha = 1 - (msTotal - ms) / msTotal;
-  let r = _getRainbowColour(lineProgressPercentage);
-  //console.log(r);
-  if (config.highlight.rainbowColourMode)
-    return "rgba(" + r[0] + "," + r[1] + "," + r[2] + "," + alpha + ")";
-  else return "rgba(" + config.highlight.colour + "," + alpha + ")";
-}
-
-function _getRainbowColour(x) {
-  let r = x,
-    g = x + 1 / 6 > 1 ? x + 1 / 6 - 1 : x + 1 / 6,
-    b = x + 2 / 6 > 1 ? x + 2 / 6 - 1 : x + 2 / 6;
-  return [
-    _calcColourIngredient(r),
-    _calcColourIngredient(g),
-    _calcColourIngredient(b),
-  ];
-}
-
-function _calcColourIngredient(percent) {
-  let total = 6 * 255,
-    pos = total * percent;
-  let c = 255;
-  if (pos > total * (1 / 6) && pos < total * (5 / 6)) {
-    if (pos < total * (2 / 6) || pos > total * (4 / 6)) {
-      c = c - Math.abs(total / 2 - pos) / 3;
-    }
-  } else c = 90;
-  return c;
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 module.exports = {
